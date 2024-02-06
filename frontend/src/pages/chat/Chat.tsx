@@ -10,7 +10,7 @@ import { isEmpty } from "lodash-es";
 import DOMPurify from 'dompurify';
 
 import styles from "./Chat.module.css";
-import Qurate from "../../assets/qurate.svg";
+import Qurate from "../../assets/Qurate.svg";
 import { XSSAllowTags } from "../../constants/xssAllowTags";
 
 import {
