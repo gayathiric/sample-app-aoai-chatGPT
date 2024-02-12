@@ -16,6 +16,36 @@ export async function conversationApi(options: ConversationRequest, abortSignal:
     return response;
 }
 
+const serviceNowConfig = {
+    baseURL: 'https://your-instance.service-now.com/api/now/',
+    username: 'your_username',
+    password: 'your_password',
+};
+
+export async function createServiceNowIncident(description: string, assignmentGroup: string): Promise<any> {
+    try {
+        const response = await fetch(`${serviceNowConfig.baseURL}/table/incident`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Basic ${btoa(`${serviceNowConfig.username}:${serviceNowConfig.password}`)}`,
+            },
+            body: JSON.stringify({
+                short_description: description,
+                assignment_group: assignmentGroup,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to create incident: ${response.statusText}`);
+        }
+
+        return await response.json();
+    } catch (err) {
+        throw new Error(`Failed to create incident: ${err}`);
+    }
+}
+
 export async function getUserInfo(): Promise<UserInfo[]> {
     const response = await fetch('/.auth/me');
     if (!response.ok) {

@@ -27,7 +27,8 @@ import {
     historyClear,
     ChatHistoryLoadingState,
     CosmosDBStatus,
-    ErrorMessage
+    ErrorMessage,
+    createServiceNowIncident
 } from "../../api";
 import { Answer } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
@@ -145,6 +146,38 @@ const Chat = () => {
         }
     }
 
+    const subscribeToMessages = (): Promise<ChatMessage> => {
+        return new Promise((resolve) => {
+            // Function to handle incoming messages from the user
+            const handleUserMessage = (message: ChatMessage) => {
+                // Resolve the promise with the received message
+                resolve(message);
+            };
+    
+            const userResponse = window.prompt("Please enter details to create inc - description,assignmentGroup,priority:");
+            if (userResponse) {
+                // Simulate receiving a message from the user
+                const userMessage: ChatMessage = {
+                    id: uuid(),
+                    role: "user",
+                    content: userResponse,
+                    date: new Date().toISOString(),
+                };
+                handleUserMessage(userMessage);
+            } else {
+                // Handle case where user cancels the prompt
+                // For simplicity, you may choose to reject the promise
+                // resolve with an error message, or handle it differently based on your requirement
+                resolve({
+                    id: uuid(),
+                    role: "user",
+                    content: "User cancelled the input.",
+                    date: new Date().toISOString(),
+                });
+            }
+        });
+    };
+
     const makeApiRequestWithoutCosmosDB = async (question: string, conversationId?: string) => {
         setIsLoading(true);
         setShowLoadingMessage(true);
@@ -182,81 +215,101 @@ const Chat = () => {
         appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
         setMessages(conversation.messages)
 
-        const request: ConversationRequest = {
-            messages: [...conversation.messages.filter((answer) => answer.role !== ERROR)]
-        };
+        // Check if the question is to create an incident
+        if (question.toLowerCase().includes("create an incident")) {
+            const userResponse = await subscribeToMessages();
+            const replyMessage: ChatMessage = {
+                id: uuid(),
+                role: "assistant",
+                content: "Incident # : INC000001 created successfully with details \
+                         Incident summary :  Test Summary;    \
+                         Incident description: Hackathon Test description;  \
+                         Assignment group: IT Platforms - Support;      \
+                         Priority: 3              ",
+                date: new Date().toISOString(),
+            };
+            conversation.messages.push(replyMessage);
+            appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+            setMessages([...messages, replyMessage]);
+            
+        } else {
+            // If the question is not to create an incident, proceed with the conversation API
+            const request: ConversationRequest = {
+                messages: [...conversation.messages.filter((answer) => answer.role !== ERROR)]
+            };
 
-        let result = {} as ChatResponse;
-        try {
-            const response = await conversationApi(request, abortController.signal);
-            if (response?.body) {
-                const reader = response.body.getReader();
+            let result = {} as ChatResponse;
+            try {
 
-                while (true) {
-                    setProcessMessages(messageStatus.Processing)
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                const response = await conversationApi(request, abortController.signal);
+                if (response?.body) {
+                    const reader = response.body.getReader();
 
-                    var text = new TextDecoder("utf-8").decode(value);
-                    const objects = text.split("\n");
-                    objects.forEach((obj) => {
-                        try {
-                            if (obj !== "" && obj !== "{}") {
-                                result = JSON.parse(obj);
-                                if (result.choices?.length > 0) {
-                                    result.choices[0].messages.forEach((msg) => {
-                                        msg.id = result.id;
-                                        msg.date = new Date().toISOString();
-                                    })
-                                    setShowLoadingMessage(false);
-                                    result.choices[0].messages.forEach((resultObj) => {
-                                        processResultMessage(resultObj, userMessage, conversationId);
-                                    })
-                                }
-                                else if (result.error) {
-                                    throw Error(result.error);
+                    while (true) {
+                        setProcessMessages(messageStatus.Processing)
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        var text = new TextDecoder("utf-8").decode(value);
+                        const objects = text.split("\n");
+                        objects.forEach((obj) => {
+                            try {
+                                if (obj !== "" && obj !== "{}") {
+                                    result = JSON.parse(obj);
+                                    if (result.choices?.length > 0) {
+                                        result.choices[0].messages.forEach((msg) => {
+                                            msg.id = result.id;
+                                            msg.date = new Date().toISOString();
+                                        })
+                                        setShowLoadingMessage(false);
+                                        result.choices[0].messages.forEach((resultObj) => {
+                                            processResultMessage(resultObj, userMessage, conversationId);
+                                        })
+                                    }
+                                    else if (result.error) {
+                                        throw Error(result.error);
+                                    }
                                 }
                             }
-                        }
-                        catch (e) {
-                            console.error(e);
-                            throw e;
-                        }
-                    });
+                            catch (e) {
+                                console.error(e);
+                                throw e;
+                            }
+                        });
+                    }
+                    conversation.messages.push(toolMessage, assistantMessage)
+                    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+                    setMessages([...messages, toolMessage, assistantMessage]);
                 }
-                conversation.messages.push(toolMessage, assistantMessage)
-                appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
-                setMessages([...messages, toolMessage, assistantMessage]);
-            }
 
-        } catch (e) {
-            if (!abortController.signal.aborted) {
-                let errorMessage = "An error occurred. Please try again. If the problem persists, please contact the site administrator.";
-                if (result.error?.message) {
-                    errorMessage = result.error.message;
+            } catch (e) {
+                if (!abortController.signal.aborted) {
+                    let errorMessage = "An error occurred. Please try again. If the problem persists, please contact the site administrator.";
+                    if (result.error?.message) {
+                        errorMessage = result.error.message;
+                    }
+                    else if (typeof result.error === "string") {
+                        errorMessage = result.error;
+                    }
+                    let errorChatMsg: ChatMessage = {
+                        id: uuid(),
+                        role: ERROR,
+                        content: errorMessage,
+                        date: new Date().toISOString()
+                    }
+                    conversation.messages.push(errorChatMsg);
+                    appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
+                    setMessages([...messages, errorChatMsg]);
+                } else {
+                    setMessages([...messages, userMessage])
                 }
-                else if (typeof result.error === "string") {
-                    errorMessage = result.error;
-                }
-                let errorChatMsg: ChatMessage = {
-                    id: uuid(),
-                    role: ERROR,
-                    content: errorMessage,
-                    date: new Date().toISOString()
-                }
-                conversation.messages.push(errorChatMsg);
-                appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
-                setMessages([...messages, errorChatMsg]);
-            } else {
-                setMessages([...messages, userMessage])
+            } finally {
+                setIsLoading(false);
+                setShowLoadingMessage(false);
+                abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
+                setProcessMessages(messageStatus.Done)
             }
-        } finally {
-            setIsLoading(false);
-            setShowLoadingMessage(false);
-            abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
-            setProcessMessages(messageStatus.Done)
         }
-
         return abortController.abort();
     };
 
@@ -629,7 +682,7 @@ const Chat = () => {
                                     aria-hidden="true"
                                 />
                                 <h1 className={styles.chatEmptyStateTitle}>IT Platforms Chatbot</h1>
-                                <h2 className={styles.chatEmptyStateSubtitle}>I am configured to assist you with your troubleshooting!</h2>
+                                <h2 className={styles.chatEmptyStateSubtitle}>I am your troubleshooting assistant! To create a ServiceNow incident...ask me - create an incident</h2>
                             </Stack>
                         ) : (
                             <div className={styles.chatMessageStream} style={{ marginBottom: isLoading ? "40px" : "0px" }} role="log">
