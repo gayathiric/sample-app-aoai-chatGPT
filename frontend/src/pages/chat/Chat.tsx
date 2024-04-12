@@ -51,7 +51,7 @@ const Chat = () => {
     const [activeCitation, setActiveCitation] = useState<Citation>();
     const [isCitationPanelOpen, setIsCitationPanelOpen] = useState<boolean>(false);
     const abortFuncs = useRef([] as AbortController[]);
-    const [showAuthMessage, setShowAuthMessage] = useState<boolean>(true);
+    const [showAuthMessage, setShowAuthMessage] = useState<boolean | undefined>();
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [processMessages, setProcessMessages] = useState<messageStatus>(messageStatus.NotRunning);
     const [clearingChat, setClearingChat] = useState<boolean>(false);
@@ -73,6 +73,7 @@ const Chat = () => {
     }
 
     const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
+    const NO_CONTENT_ERROR = "No content in messages object."
 
     useEffect(() => {
         if (appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.Working  
@@ -213,7 +214,9 @@ const Chat = () => {
                                         msg.id = result.id;
                                         msg.date = new Date().toISOString();
                                     })
-                                    setShowLoadingMessage(false);
+                                    if (result.choices[0].messages?.some(m => m.role === ASSISTANT)) {
+                                        setShowLoadingMessage(false);
+                                    }
                                     result.choices[0].messages.forEach((resultObj) => {
                                         processResultMessage(resultObj, userMessage, conversationId);
                                     })
@@ -355,12 +358,18 @@ const Chat = () => {
                             if (obj !== "" && obj !== "{}") {
                                 runningText += obj;
                                 result = JSON.parse(runningText);
+                                if (!result.choices?.[0]?.messages?.[0].content) {
+                                    errorResponseMessage = NO_CONTENT_ERROR;
+                                    throw Error();
+                                }
                                 if (result.choices?.length > 0) {
                                     result.choices[0].messages.forEach((msg) => {
                                         msg.id = result.id;
                                         msg.date = new Date().toISOString();
                                     })
-                                    setShowLoadingMessage(false);
+                                    if (result.choices[0].messages?.some(m => m.role === ASSISTANT)) {
+                                        setShowLoadingMessage(false);
+                                    }
                                     result.choices[0].messages.forEach((resultObj) => {
                                         processResultMessage(resultObj, userMessage, conversationId);
                                     })
@@ -447,7 +456,6 @@ const Chat = () => {
                 } else {
                     if (!result.history_metadata) {
                         console.error("Error retrieving data.", result);
-                        console.log("errorMessage", errorMessage)
                         let errorChatMsg: ChatMessage = {
                             id: uuid(),
                             role: ERROR,
@@ -545,36 +553,40 @@ const Chat = () => {
                     console.error("Failure fetching current chat state.")
                     return
                 }
-                saveToDB(appStateContext.state.currentChat.messages, appStateContext.state.currentChat.id)
-                    .then((res) => {
-                        if (!res.ok) {
-                            let errorMessage = "An error occurred. Answers can't be saved at this time. If the problem persists, please contact the site administrator.";
-                            let errorChatMsg: ChatMessage = {
-                                id: uuid(),
-                                role: ERROR,
-                                content: errorMessage,
-                                date: new Date().toISOString()
-                            }
-                            if (!appStateContext?.state.currentChat?.messages) {
-                                let err: Error = {
-                                    ...new Error,
-                                    message: "Failure fetching current chat state."
+                const noContentError = appStateContext.state.currentChat.messages.find(m => m.role === ERROR)
+                
+                if (!noContentError?.content.includes(NO_CONTENT_ERROR)) {
+                    saveToDB(appStateContext.state.currentChat.messages, appStateContext.state.currentChat.id)
+                        .then((res) => {
+                            if (!res.ok) {
+                                let errorMessage = "An error occurred. Answers can't be saved at this time. If the problem persists, please contact the site administrator.";
+                                let errorChatMsg: ChatMessage = {
+                                    id: uuid(),
+                                    role: ERROR,
+                                    content: errorMessage,
+                                    date: new Date().toISOString()
                                 }
-                                throw err
+                                if (!appStateContext?.state.currentChat?.messages) {
+                                    let err: Error = {
+                                        ...new Error,
+                                        message: "Failure fetching current chat state."
+                                    }
+                                    throw err
+                                }
+                                setMessages([...appStateContext?.state.currentChat?.messages, errorChatMsg])
                             }
-                            setMessages([...appStateContext?.state.currentChat?.messages, errorChatMsg])
-                        }
-                        return res as Response
-                    })
-                    .catch((err) => {
-                        console.error("Error: ", err)
-                        let errRes: Response = {
-                            ...new Response,
-                            ok: false,
-                            status: 500,
-                        }
-                        return errRes;
-                    })
+                            return res as Response
+                        })
+                        .catch((err) => {
+                            console.error("Error: ", err)
+                            let errRes: Response = {
+                                ...new Response,
+                                ok: false,
+                                status: 500,
+                            }
+                            return errRes;
+                        })
+                }
             } else {
             }
             appStateContext?.dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: appStateContext.state.currentChat });
@@ -626,10 +638,8 @@ const Chat = () => {
                     <ShieldLockRegular className={styles.chatIcon} style={{ color: 'darkorange', height: "200px", width: "200px" }} />
                     <h1 className={styles.chatEmptyStateTitle}>Authentication Not Configured</h1>
                     <h2 className={styles.chatEmptyStateSubtitle}>
-                        This app does not have authentication configured. Please add an identity provider by finding your app in the
-                        <a href="https://portal.azure.com/" target="_blank"> Azure Portal </a>
-                        and following
-                        <a href="https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-authentication-app-service#3-configure-authentication-and-authorization" target="_blank"> these instructions</a>.
+                        This app does not have authentication configured. Please add an identity provider by finding your app in the <a href="https://portal.azure.com/" target="_blank">Azure Portal</a> 
+                        and following <a href="https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-authentication-app-service#3-configure-authentication-and-authorization" target="_blank">these instructions</a>.
                     </h2>
                     <h2 className={styles.chatEmptyStateSubtitle} style={{ fontSize: "20px" }}><strong>Authentication configuration takes a few minutes to apply. </strong></h2>
                     <h2 className={styles.chatEmptyStateSubtitle} style={{ fontSize: "20px" }}><strong>If you deployed in the last 10 minutes, please wait and reload the page after 10 minutes.</strong></h2>
