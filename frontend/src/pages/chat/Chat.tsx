@@ -10,7 +10,7 @@ import { isEmpty } from "lodash-es";
 import DOMPurify from 'dompurify';
 
 import styles from "./Chat.module.css";
-import Contoso from "../../assets/Contoso.svg";
+import Qurate from "../../assets/Qurate.svg";
 import { XSSAllowTags } from "../../constants/xssAllowTags";
 
 import {
@@ -183,12 +183,14 @@ const Chat = () => {
         appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conversation });
         setMessages(conversation.messages)
 
+        
         const request: ConversationRequest = {
             messages: [...conversation.messages.filter((answer) => answer.role !== ERROR)]
         };
 
         let result = {} as ChatResponse;
         try {
+
             const response = await conversationApi(request, abortController.signal);
             if (response?.body) {
                 const reader = response.body.getReader();
@@ -264,7 +266,6 @@ const Chat = () => {
             abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
             setProcessMessages(messageStatus.Done)
         }
-
         return abortController.abort();
     };
 

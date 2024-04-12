@@ -16,6 +16,12 @@ export async function conversationApi(options: ConversationRequest, abortSignal:
     return response;
 }
 
+const serviceNowConfig = {
+    baseURL: 'https://your-instance.service-now.com/api/now/',
+    username: 'your_username',
+    password: 'your_password',
+};
+
 export async function getUserInfo(): Promise<UserInfo[]> {
     const response = await fetch('/.auth/me');
     if (!response.ok) {
